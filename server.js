@@ -54,11 +54,24 @@ app.get('/download', (req, res) => {
   const client = videoUrl.startsWith('https') ? https : http;
 
   const proxyReq = client.get(videoUrl, (proxyRes) => {
+    const upstreamType = proxyRes.headers['content-type'] || '';
     if (proxyRes.statusCode !== 200 && proxyRes.statusCode !== 206) {
-      res.status(502).json({ error: 'Upstream fetch failed', code: proxyRes.statusCode });
+      let body = '';
+      proxyRes.on('data', chunk => { body += chunk; });
+      proxyRes.on('end', () => {
+        res.status(502).json({ error: 'Upstream fetch failed', code: proxyRes.statusCode, body: body.slice(0, 300) });
+      });
       return;
     }
-    res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'video/mp4');
+    if (!upstreamType.startsWith('video') && !upstreamType.startsWith('application/octet-stream')) {
+      let body = '';
+      proxyRes.on('data', chunk => { body += chunk; });
+      proxyRes.on('end', () => {
+        res.status(502).json({ error: 'Upstream returned non-video content', contentType: upstreamType, body: body.slice(0, 300) });
+      });
+      return;
+    }
+    res.setHeader('Content-Type', upstreamType || 'video/mp4');
     if (proxyRes.headers['content-length']) {
       res.setHeader('Content-Length', proxyRes.headers['content-length']);
     }
