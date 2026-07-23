@@ -44,5 +44,35 @@ app.post('/extract', async (req, res) => {
   }
 });
 
+const https = require('https');
+const http = require('http');
+
+app.get('/download', (req, res) => {
+  const videoUrl = req.query.url;
+  if (!videoUrl) return res.status(400).json({ error: 'url parameter is required' });
+
+  const client = videoUrl.startsWith('https') ? https : http;
+
+  const proxyReq = client.get(videoUrl, (proxyRes) => {
+    if (proxyRes.statusCode !== 200 && proxyRes.statusCode !== 206) {
+      res.status(502).json({ error: 'Upstream fetch failed', code: proxyRes.statusCode });
+      return;
+    }
+    res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'video/mp4');
+    if (proxyRes.headers['content-length']) {
+      res.setHeader('Content-Length', proxyRes.headers['content-length']);
+    }
+    res.setHeader('Content-Disposition', 'attachment; filename="video.mp4"');
+    proxyRes.pipe(res);
+  });
+
+  proxyReq.on('error', (err) => {
+    console.error('Proxy error:', err.message);
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  });
+
+  req.on('close', () => proxyReq.destroy());
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
