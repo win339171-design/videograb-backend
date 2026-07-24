@@ -139,5 +139,39 @@ app.get('/stream', async (req, res) => {
   }
 });
 
+app.get('/audio', async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'url parameter is required' });
+
+  res.setHeader('Content-Type', 'audio/mpeg');
+  res.setHeader('Content-Disposition', 'attachment; filename="audio.mp3"');
+
+  const cmd = `yt-dlp -f bestaudio --no-playlist -o - "${url}"`;
+  const ytdlp = require('child_process').spawn('sh', ['-c', cmd]);
+  const ffmpeg = require('child_process').spawn('ffmpeg', [
+    '-i', 'pipe:0',
+    '-vn',
+    '-acodec', 'libmp3lame',
+    '-ab', '192k',
+    '-f', 'mp3',
+    'pipe:1'
+  ]);
+
+  ytdlp.stdout.pipe(ffmpeg.stdin);
+  ffmpeg.stdout.pipe(res);
+
+  ytdlp.stderr.on('data', () => {});
+  ffmpeg.stderr.on('data', () => {});
+
+  ffmpeg.on('error', (err) => {
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  });
+
+  req.on('close', () => {
+    ytdlp.kill();
+    ffmpeg.kill();
+  });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
