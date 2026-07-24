@@ -17,7 +17,7 @@ app.post('/extract', async (req, res) => {
   if (!url) return res.status(400).json({ error: 'URL လိုအပ်ပါတယ်' });
 
   try {
-    const cmd = `yt-dlp -j --no-playlist "${url}"`;
+    const cmd = `yt-dlp -j --no-playlist --extractor-args "tiktok:api_hostname=api22-normal-c-useast2a.tiktokv.com" "${url}"`;
     const { stdout } = await execPromise(cmd, { maxBuffer: 1024 * 1024 * 20, timeout: 60000 });
     const info = JSON.parse(stdout);
 
