@@ -89,14 +89,17 @@ app.get('/download', (req, res) => {
 });
 
 app.get('/stream', (req, res) => {
-  const { url, formatId } = req.query;
+  const { url, formatId, sizeHint } = req.query;
   if (!url) return res.status(400).json({ error: 'url parameter is required' });
 
   res.setHeader('Content-Type', 'video/mp4');
   res.setHeader('Content-Disposition', 'attachment; filename="video.mp4"');
+  if (sizeHint && !isNaN(parseInt(sizeHint)) && parseInt(sizeHint) > 0) {
+    res.setHeader('X-Estimated-Size', sizeHint);
+  }
 
   const fmtSelector = formatId
-    ? `${formatId}/${formatId}+bestaudio/best`
+    ? `${formatId}+bestaudio/${formatId}/best`
     : 'bestvideo+bestaudio/best';
 
   const args = ['-f', fmtSelector, '--no-playlist', '--merge-output-format', 'mp4', '-o', '-', url];
