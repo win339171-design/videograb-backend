@@ -22,13 +22,13 @@ app.post('/extract', async (req, res) => {
     const info = JSON.parse(stdout);
 
     const formats = (info.formats || [])
-      .filter(f => f.vcodec !== 'none' && f.acodec !== 'none' && f.url)
+      .filter(f => f.vcodec !== 'none' && f.url)
       .map(f => ({
-        quality: f.format_note || f.height ? `${f.height}p` : f.format_id,
+        quality: f.height ? `${f.height}p` : (f.format_note || f.format_id),
         ext: f.ext,
         url: f.url,
         formatId: f.format_id,
-        filesize: f.filesize || f.filesize_approx || 0,
+        filesize: f.filesize || f.filesize_approx || (f.tbr ? Math.round(f.tbr * (info.duration || 10) * 128) : 0),
       }))
       .sort((a, b) => (b.filesize || 0) - (a.filesize || 0));
 
