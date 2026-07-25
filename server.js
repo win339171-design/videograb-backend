@@ -89,43 +89,60 @@ app.get('/download', (req, res) => {
 });
 
 app.get('/stream', (req, res) => {
-  const { url, formatId, sizeHint } = req.query;
+  const { url, formatId } = req.query;
   if (!url) return res.status(400).json({ error: 'url parameter is required' });
 
-  res.setHeader('Content-Type', 'video/mp4');
-  res.setHeader('Content-Disposition', 'attachment; filename="video.mp4"');
-  if (sizeHint && !isNaN(parseInt(sizeHint)) && parseInt(sizeHint) > 0) {
-    res.setHeader('X-Estimated-Size', sizeHint);
-  }
+  const os = require('os');
+  const path = require('path');
+  const fsSync = require('fs');
+
+  const tempId = Date.now() + '_' + Math.random().toString(36).slice(2);
+  const tempPath = path.join(os.tmpdir(), `vg_${tempId}.mp4`);
 
   const fmtSelector = formatId
     ? `${formatId}+bestaudio/${formatId}/best`
     : 'bestvideo+bestaudio/best';
 
-  const args = ['-f', fmtSelector, '--no-playlist', '--merge-output-format', 'mp4', '-o', '-', url];
+  const args = ['-f', fmtSelector, '--no-playlist', '--merge-output-format', 'mp4', '-o', tempPath, url];
   const proc = require('child_process').spawn('yt-dlp', args);
-
-  let sentAny = false;
-  proc.stdout.on('data', (chunk) => {
-    sentAny = true;
-    res.write(chunk);
-  });
-  proc.stdout.on('end', () => res.end());
 
   let stderrBuf = '';
   proc.stderr.on('data', (d) => { stderrBuf += d.toString(); });
+  proc.stdout.on('data', () => {});
+
+  const cleanup = () => {
+    fsSync.unlink(tempPath, () => {});
+  };
 
   proc.on('error', (err) => {
     if (!res.headersSent) res.status(500).json({ error: err.message });
+    cleanup();
   });
 
   proc.on('close', (code) => {
-    if (!sentAny && !res.headersSent) {
-      res.status(502).json({ error: 'yt-dlp produced no output', code, detail: stderrBuf.slice(-500) });
+    if (!fsSync.existsSync(tempPath)) {
+      if (!res.headersSent) {
+        res.status(502).json({ error: 'yt-dlp failed to produce a file', code, detail: stderrBuf.slice(-500) });
+      }
+      cleanup();
+      return;
     }
+
+    const stat = fsSync.statSync(tempPath);
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Content-Disposition', 'attachment; filename="video.mp4"');
+
+    const readStream = fsSync.createReadStream(tempPath);
+    readStream.pipe(res);
+    readStream.on('close', cleanup);
+    readStream.on('error', cleanup);
   });
 
-  req.on('close', () => proc.kill());
+  req.on('close', () => {
+    proc.kill();
+    cleanup();
+  });
 });
 
 app.get('/audio', async (req, res) => {
