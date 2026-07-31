@@ -88,6 +88,82 @@ app.get('/download', (req, res) => {
   req.on('close', () => proxyReq.destroy());
 });
 
+app.get('/stream-progress', (req, res) => {
+  const { url, formatId } = req.query;
+  if (!url) return res.status(400).json({ error: 'url parameter is required' });
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const os = require('os');
+  const path = require('path');
+  const fsSync = require('fs');
+
+  const tempId = Date.now() + '_' + Math.random().toString(36).slice(2);
+  const tempPath = path.join(os.tmpdir(), `vg_${tempId}.mp4`);
+
+  const fmtSelector = formatId
+    ? `${formatId}+bestaudio/${formatId}/best`
+    : 'bestvideo+bestaudio/best';
+
+  const args = ['-f', fmtSelector, '--no-playlist', '--merge-output-format', 'mp4', '--newline', '-o', tempPath, url];
+  const proc = require('child_process').spawn('yt-dlp', args);
+
+  let stderrBuf = '';
+  let lastPercent = -1;
+
+  proc.stdout.on('data', (data) => {
+    const text = data.toString();
+    const match = text.match(/\[download\]\s+([\d.]+)%/);
+    if (match) {
+      const percent = Math.round(parseFloat(match[1]));
+      if (percent !== lastPercent) {
+        lastPercent = percent;
+        res.write(`data: ${JSON.stringify({ percent, done: false })}\n\n`);
+      }
+    }
+  });
+
+  proc.stderr.on('data', (d) => { stderrBuf += d.toString(); });
+
+  proc.on('close', (code) => {
+    if (!fsSync.existsSync(tempPath)) {
+      res.write(`data: ${JSON.stringify({ error: 'yt-dlp failed', code, detail: stderrBuf.slice(-300) })}\n\n`);
+      res.end();
+      return;
+    }
+    res.write(`data: ${JSON.stringify({ percent: 100, done: true, tempId })}\n\n`);
+    res.end();
+  });
+
+  req.on('close', () => proc.kill());
+});
+
+app.get('/fetch-temp', (req, res) => {
+  const { tempId } = req.query;
+  if (!tempId) return res.status(400).json({ error: 'tempId required' });
+
+  const os = require('os');
+  const path = require('path');
+  const fsSync = require('fs');
+  const tempPath = path.join(os.tmpdir(), `vg_${tempId}.mp4`);
+
+  if (!fsSync.existsSync(tempPath)) {
+    return res.status(404).json({ error: 'File not found or expired' });
+  }
+
+  const stat = fsSync.statSync(tempPath);
+  res.setHeader('Content-Type', 'video/mp4');
+  res.setHeader('Content-Length', stat.size);
+  res.setHeader('Content-Disposition', 'attachment; filename="video.mp4"');
+
+  const readStream = fsSync.createReadStream(tempPath);
+  readStream.pipe(res);
+  readStream.on('close', () => fsSync.unlink(tempPath, () => {}));
+});
+
 app.get('/stream', (req, res) => {
   const { url, formatId } = req.query;
   if (!url) return res.status(400).json({ error: 'url parameter is required' });
