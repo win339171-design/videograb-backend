@@ -255,5 +255,13 @@ app.get('/audio', async (req, res) => {
   });
 });
 
+process.on('uncaughtException', (err) => {
+  if (err.code === 'EPIPE' || err.code === 'ECONNRESET') {
+    console.log('Ignored client disconnect error:', err.code);
+    return;
+  }
+  console.error('Uncaught exception:', err);
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
